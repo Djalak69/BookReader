@@ -1,35 +1,38 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab = 0
+    @EnvironmentObject var authViewModel: AuthViewModel
     
     var body: some View {
-        TabView(selection: $selectedTab) {
-            HomeView()
-                .tabItem {
-                    Label("Accueil", systemImage: "house.fill")
-                }
-                .tag(0)
+        TabView {
+            NavigationStack {
+                HomeView()
+            }
+            .tabItem {
+                Label("Accueil", systemImage: "house.fill")
+            }
             
-            MyBooksView()
-                .tabItem {
-                    Label("Mes Livres", systemImage: "books.vertical.fill")
-                }
-                .tag(1)
+            NavigationStack {
+                MyBooksView()
+            }
+            .tabItem {
+                Label("Mes Livres", systemImage: "books.vertical.fill")
+            }
             
-            LibraryView()
-                .tabItem {
-                    Label("Bibliothèque", systemImage: "building.columns.fill")
-                }
-                .tag(2)
+            NavigationStack {
+                LibraryView()
+            }
+            .tabItem {
+                Label("Bibliothèque", systemImage: "building.columns.fill")
+            }
             
-            SearchView()
-                .tabItem {
-                    Label("Rechercher", systemImage: "magnifyingglass")
-                }
-                .tag(3)
+            NavigationStack {
+                SearchView()
+            }
+            .tabItem {
+                Label("Rechercher", systemImage: "magnifyingglass")
+            }
         }
-        .tint(.purple) // Couleur d'accent personnalisée
     }
 }
 

@@ -1,229 +1,370 @@
 import Foundation
-import Combine
+import SwiftUI
+
+// MARK: - API Response Models
+struct AuthResponse: Codable {
+    let token: String
+    let user: User
+}
 
 @MainActor
-class AuthViewModel: ObservableObject {
-    @Published var currentUser: User?
+final class AuthViewModel: ObservableObject {
+    // MARK: - Published Properties
+    @Published private(set) var isLoading = false
+    @Published private(set) var error: String?
+    @Published var isRegistering = false
     @Published var isAuthenticated = false
-    @Published var isLoading = false
-    @Published var error: String?
+    @Published private(set) var currentUser: User?
     
-    // États du formulaire
     @Published var email = ""
     @Published var password = ""
     @Published var username = ""
-    @Published var isRegistering = false
     
-    // Validation des champs
-    @Published var emailError: String?
-    @Published var passwordError: String?
-    @Published var usernameError: String?
+    @Published private(set) var emailError: String?
+    @Published private(set) var passwordError: String?
+    @Published private(set) var usernameError: String?
     
-    private var cancellables = Set<AnyCancellable>()
-    private let apiService = APIService.shared
+    // MARK: - Static Error Messages
+    private static let emailRequiredMessage = "L'email est requis"
+    private static let invalidEmailMessage = "L'email n'est pas valide"
+    private static let passwordRequiredMessage = "Le mot de passe est requis"
+    private static let usernameRequiredMessage = "Le nom d'utilisateur est requis"
+    private static let weakPasswordMessage = "Le mot de passe doit contenir au moins 6 caractères"
+    private static let loginErrorMessage = "Erreur lors de la connexion"
+    private static let registerErrorMessage = "Erreur lors de l'inscription"
+    private static let resetPasswordErrorMessage = "Erreur lors de la réinitialisation du mot de passe"
+    private static let resetPasswordSuccessMessage = "Un email de réinitialisation a été envoyé"
+    private static let emailAlreadyInUseMessage = "Cet email est déjà utilisé"
+    private static let userNotFoundMessage = "Aucun utilisateur trouvé avec cet email"
+    
+    // MARK: - API Configuration
+    private let baseURL = "https://bookreaderserver.onrender.com/api"
+    private let session: URLSession
     
     init() {
-        setupValidation()
-    }
-    
-    private func setupValidation() {
-        // Validation de l'email
-        $email
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .removeDuplicates()
-            .sink { [weak self] email in
-                self?.validateEmail(email)
-            }
-            .store(in: &cancellables)
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 300
+        self.session = URLSession(configuration: configuration)
         
-        // Validation du mot de passe
-        $password
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .removeDuplicates()
-            .sink { [weak self] password in
-                self?.validatePassword(password)
-            }
-            .store(in: &cancellables)
+        // Vérifier si un token existe et restaurer la session
+        if let token = UserDefaults.standard.string(forKey: "authToken") {
+            restoreSession(with: token)
+        }
         
-        // Validation du nom d'utilisateur
-        $username
-            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-            .removeDuplicates()
-            .sink { [weak self] username in
-                self?.validateUsername(username)
-            }
-            .store(in: &cancellables)
-    }
-    
-    private func validateEmail(_ email: String) {
-        print("Validation de l'email: \(email)")
-        let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
-        let emailPredicate = NSPredicate(format:"SELF MATCHES %@", emailRegex)
+        // Log pour vérifier que l'API est accessible
+        let testURL = URL(string: "https://bookreaderserver.onrender.com")!
+        var request = URLRequest(url: testURL)
+        request.httpMethod = "GET"
         
-        if email.isEmpty {
-            print("Email vide")
-            self.emailError = "L'email est requis"
-        } else if !emailPredicate.evaluate(with: email) {
-            print("Format d'email invalide")
-            self.emailError = "Format d'email invalide"
-        } else {
-            print("Email valide")
-            self.emailError = nil
-        }
+        print("Test de connexion à l'API...")
+        session.dataTask(with: request) { _, response, error in
+            if let error = error {
+                print("❌ Erreur de connexion à l'API: \(error.localizedDescription)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("✅ API status: \(httpResponse.statusCode)")
+            }
+        }.resume()
     }
     
-    private func validatePassword(_ password: String) {
-        print("Validation du mot de passe: \(password)")
-        if password.isEmpty {
-            print("Mot de passe vide")
-            self.passwordError = "Le mot de passe est requis"
-        } else if password.count < 8 {
-            print("Mot de passe trop court")
-            self.passwordError = "Le mot de passe doit contenir au moins 8 caractères"
-        } else {
-            print("Mot de passe valide")
-            self.passwordError = nil
-        }
-    }
-    
-    private func validateUsername(_ username: String) {
-        print("Validation du nom d'utilisateur: \(username)")
-        if username.isEmpty && self.isRegistering {
-            print("Nom d'utilisateur vide")
-            self.usernameError = "Le nom d'utilisateur est requis"
-        } else if username.count < 3 && self.isRegistering {
-            print("Nom d'utilisateur trop court")
-            self.usernameError = "Le nom d'utilisateur doit contenir au moins 3 caractères"
-        } else {
-            print("Nom d'utilisateur valide")
-            self.usernameError = nil
-        }
-    }
-    
+    // MARK: - Computed Properties
     var isFormValid: Bool {
-        print("Vérification de isFormValid")
-        if isRegistering {
-            print("Mode inscription - vérifiant email, password et username")
-            return email.count >= 5 && password.count >= 6 && username.count >= 3 &&
-                emailError == nil && passwordError == nil && usernameError == nil
-        } else {
-            print("Mode connexion - vérifiant email et password")
-            print("Email length: \(email.count), Password length: \(password.count)")
-            print("Email errors: \(String(describing: emailError))")
-            print("Password errors: \(String(describing: passwordError))")
-            return email.count >= 5 && password.count >= 6 &&
-                emailError == nil && passwordError == nil
-        }
+        emailError == nil && passwordError == nil && 
+        (!isRegistering || usernameError == nil) &&
+        !email.isEmpty && !password.isEmpty &&
+        (!isRegistering || !username.isEmpty)
     }
     
-    // MARK: - Actions d'authentification
-    
-    @MainActor
-    func signIn() {
-        guard isFormValid else {
-            print("Formulaire invalide, connexion impossible")
+    // MARK: - Validation Methods
+    func validateEmail() {
+        emailError = nil
+        guard !email.isEmpty else {
+            emailError = Self.emailRequiredMessage
             return
         }
         
-        isLoading = true
-        print("Appel de l'API de connexion avec email: \(email)")
+        let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
+        let emailPredicate = NSPredicate(format:"SELF MATCHES %@", emailRegex)
+        if !emailPredicate.evaluate(with: email) {
+            emailError = Self.invalidEmailMessage
+        }
+    }
+    
+    func validatePassword() {
+        passwordError = nil
+        guard !password.isEmpty else {
+            passwordError = Self.passwordRequiredMessage
+            return
+        }
         
-        // Simulation d'une connexion réussie
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+        if password.count < 6 {
+            passwordError = Self.weakPasswordMessage
+        }
+    }
+    
+    func validateUsername() {
+        usernameError = nil
+        if isRegistering && username.isEmpty {
+            usernameError = Self.usernameRequiredMessage
+        }
+    }
+    
+    // MARK: - Authentication Methods
+    private func handleAuthResponse(_ authResponse: AuthResponse) {
+        print("🔄 Début du traitement de la réponse d'authentification")
+        print("📝 Token reçu: \(authResponse.token)")
+        print("👤 Utilisateur reçu: \(authResponse.user.username)")
+        
+        UserDefaults.standard.set(authResponse.token, forKey: "authToken")
+        print("💾 Token sauvegardé dans UserDefaults")
+        
+        Task { @MainActor in
+            print("🔄 Mise à jour de l'état sur le thread principal")
+            self.currentUser = authResponse.user
+            print("👤 Utilisateur courant mis à jour: \(String(describing: self.currentUser?.username))")
+            
+            withAnimation {
+                print("🔐 Mise à jour de l'état d'authentification à true")
+                self.isAuthenticated = true
+                print("✅ État final - isAuthenticated: \(self.isAuthenticated)")
+            }
+        }
+    }
+    
+    func signIn() {
+        Task {
+            print("Tentative de connexion avec email: \(email)")
+            isLoading = true
+            error = nil
+            
+            let loginURL = URL(string: "\(baseURL)/auth/login")!
+            var request = URLRequest(url: loginURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            
+            let body = ["email": email, "password": password]
+            do {
+                let jsonData = try JSONEncoder().encode(body)
+                request.httpBody = jsonData
+                print("Corps de la requête: \(String(data: jsonData, encoding: .utf8) ?? "")")
+                
+                print("Envoi de la requête à \(loginURL)")
+                print("Headers: \(request.allHTTPHeaderFields ?? [:])")
+                
+                let (data, response) = try await session.data(for: request)
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("Réponse invalide")
+                    self.error = Self.loginErrorMessage
+                    return
+                }
+                
+                print("Code de statut HTTP: \(httpResponse.statusCode)")
+                
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("Réponse du serveur: \(responseString)")
+                }
+                
+                if httpResponse.statusCode == 200 {
+                    if let authResponse = try? JSONDecoder().decode(AuthResponse.self, from: data) {
+                        print("Connexion réussie, token reçu")
+                        await MainActor.run {
+                            self.handleAuthResponse(authResponse)
+                        }
+                    } else {
+                        print("Erreur de décodage de la réponse")
+                        self.error = Self.loginErrorMessage
+                    }
+                } else if httpResponse.statusCode == 401 {
+                    print("Identifiants invalides")
+                    self.error = "Email ou mot de passe incorrect"
+                } else {
+                    print("Erreur serveur: \(httpResponse.statusCode)")
+                    self.error = Self.loginErrorMessage
+                }
+            } catch {
+                print("Erreur réseau: \(error.localizedDescription)")
+                self.error = Self.loginErrorMessage
+            }
+            
             self.isLoading = false
-            self.isAuthenticated = true
-            print("Connexion réussie pour l'utilisateur: \(self.email)")
         }
     }
     
     func signUp() {
-        guard isFormValid else {
-            self.error = "Veuillez remplir correctement tous les champs"
-            return
+        print("Tentative d'inscription avec email: \(email) et username: \(username)")
+        isLoading = true
+        error = nil
+        
+        let registerURL = URL(string: "\(baseURL)/auth/register")!
+        var request = URLRequest(url: registerURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        let body = ["email": email, "password": password, "username": username]
+        do {
+            let jsonData = try JSONEncoder().encode(body)
+            request.httpBody = jsonData
+            print("Corps de la requête: \(String(data: jsonData, encoding: .utf8) ?? "")")
+        } catch {
+            print("Erreur d'encodage JSON: \(error)")
         }
         
-        Task {
-            self.isLoading = true
-            self.error = nil
-            
-            do {
-                let (user, _) = try await APIService.shared.register(
-                    email: email,
-                    username: username,
-                    password: password
-                )
-                self.currentUser = user
-                self.isAuthenticated = true
-                print("Inscription réussie pour l'utilisateur: \(user.username)")
-            } catch let error as APIError {
-                switch error {
-                case .serverError(let message):
-                    self.error = message
-                case .networkError(_):
-                    self.error = "Impossible de se connecter au serveur. Veuillez vérifier votre connexion internet."
-                default:
-                    self.error = "Une erreur est survenue lors de l'inscription"
+        print("Envoi de la requête à \(registerURL)")
+        print("Headers: \(request.allHTTPHeaderFields ?? [:])")
+        
+        session.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                self?.isLoading = false
+                
+                if let error = error {
+                    print("Erreur réseau: \(error.localizedDescription)")
+                    self?.error = Self.registerErrorMessage
+                    return
                 }
-                print("Erreur lors de l'inscription: \(error.message)")
-            } catch {
-                self.error = "Une erreur inattendue est survenue"
-                print("Erreur inattendue lors de l'inscription: \(error)")
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("Réponse invalide")
+                    self?.error = Self.registerErrorMessage
+                    return
+                }
+                
+                print("Code de statut HTTP: \(httpResponse.statusCode)")
+                
+                if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                    print("Réponse du serveur: \(responseString)")
+                }
+                
+                if httpResponse.statusCode == 201 {
+                    if let data = data,
+                       let authResponse = try? JSONDecoder().decode(AuthResponse.self, from: data) {
+                        print("Inscription réussie, token reçu")
+                        self?.handleAuthResponse(authResponse)
+                    } else {
+                        print("Erreur de décodage de la réponse")
+                        self?.error = Self.registerErrorMessage
+                    }
+                } else if httpResponse.statusCode == 409 {
+                    print("Email déjà utilisé")
+                    self?.error = Self.emailAlreadyInUseMessage
+                } else {
+                    print("Erreur serveur: \(httpResponse.statusCode)")
+                    self?.error = Self.registerErrorMessage
+                }
             }
-            
-            self.isLoading = false
-        }
-    }
-    
-    func signOut() {
-        self.apiService.logout()
-        self.currentUser = nil
-        self.isAuthenticated = false
-        self.email = ""
-        self.password = ""
-        self.username = ""
-        self.error = nil
-        self.emailError = nil
-        self.passwordError = nil
-        self.usernameError = nil
+        }.resume()
     }
     
     func resetPassword() {
-        guard !self.email.isEmpty else {
-            self.error = "Veuillez entrer votre email"
+        guard !email.isEmpty else {
+            error = Self.emailRequiredMessage
             return
         }
         
-        guard self.emailError == nil else {
-            self.error = "Veuillez entrer un email valide"
-            return
+        isLoading = true
+        error = nil
+        
+        let resetURL = URL(string: "\(baseURL)/auth/reset-password")!
+        var request = URLRequest(url: resetURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        let body = ["email": email]
+        do {
+            let jsonData = try JSONEncoder().encode(body)
+            request.httpBody = jsonData
+            print("Corps de la requête: \(String(data: jsonData, encoding: .utf8) ?? "")")
+        } catch {
+            print("Erreur d'encodage JSON: \(error)")
         }
         
-        Task {
-            self.isLoading = true
-            self.error = nil
-            
-            do {
-                let message = try await self.apiService.resetPassword(email: self.email)
-                self.error = message // Dans ce cas, nous utilisons error pour afficher le message de succès
-            } catch let apiError as APIError {
-                self.error = apiError.message
-            } catch {
-                self.error = "Une erreur inattendue s'est produite"
+        print("Envoi de la requête à \(resetURL)")
+        print("Headers: \(request.allHTTPHeaderFields ?? [:])")
+        
+        session.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                self?.isLoading = false
+                
+                if let error = error {
+                    print("Erreur réseau: \(error.localizedDescription)")
+                    self?.error = Self.resetPasswordErrorMessage
+                    return
+                }
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("Réponse invalide")
+                    self?.error = Self.resetPasswordErrorMessage
+                    return
+                }
+                
+                print("Code de statut HTTP: \(httpResponse.statusCode)")
+                
+                if let data = data, let responseString = String(data: data, encoding: .utf8) {
+                    print("Réponse du serveur: \(responseString)")
+                }
+                
+                if httpResponse.statusCode == 200 {
+                    self?.error = Self.resetPasswordSuccessMessage
+                } else if httpResponse.statusCode == 404 {
+                    self?.error = Self.userNotFoundMessage
+                } else {
+                    print("Erreur serveur: \(httpResponse.statusCode)")
+                    self?.error = Self.resetPasswordErrorMessage
+                }
             }
-            
-            self.isLoading = false
-        }
+        }.resume()
     }
     
-    func refreshProfile() {
-        Task {
-            do {
-                self.currentUser = try await self.apiService.getProfile()
-            } catch {
-                // Si nous ne pouvons pas rafraîchir le profil, nous déconnectons l'utilisateur
-                self.signOut()
+    // MARK: - Session Management
+    func restoreSession(with token: String) {
+        // Vérifier la validité du token avec le serveur
+        let verifyURL = URL(string: "\(baseURL)/auth/verify")!
+        var request = URLRequest(url: verifyURL)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        
+        session.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                if let data = data,
+                   let authResponse = try? JSONDecoder().decode(AuthResponse.self, from: data),
+                   (response as? HTTPURLResponse)?.statusCode == 200 {
+                    self?.handleAuthResponse(authResponse)
+                } else {
+                    // Token invalide, déconnexion
+                    self?.signOut()
+                }
             }
-        }
+        }.resume()
+    }
+    
+    func signOut() {
+        UserDefaults.standard.removeObject(forKey: "authToken")
+        self.currentUser = nil
+        self.isAuthenticated = false
+        clearFields()
+    }
+    
+    // MARK: - Helper Methods
+    func clearFields() {
+        email = ""
+        password = ""
+        username = ""
+        error = nil
+        emailError = nil
+        passwordError = nil
+        usernameError = nil
+    }
+    
+    // MARK: - View State Management
+    func toggleRegistration() {
+        isRegistering.toggle()
+        clearFields()
     }
 }
 

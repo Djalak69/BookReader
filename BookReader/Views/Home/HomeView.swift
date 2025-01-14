@@ -1,71 +1,110 @@
 import SwiftUI
 
 struct HomeView: View {
+    @EnvironmentObject var authViewModel: AuthViewModel
+    
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Section "Continuer la lecture"
-                    ContinueReadingSection()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // En-tête avec profil
+                HStack {
+                    VStack(alignment: .leading) {
+                        if let user = authViewModel.currentUser {
+                            Text("Bonjour,")
+                                .font(.title2)
+                                .foregroundColor(.gray)
+                            Text(user.username)
+                                .font(.title)
+                                .bold()
+                        }
+                    }
+                    Spacer()
                     
-                    // Section "Les Incontournables"
-                    FeaturedBooksSection()
-                    
-                    // Section "Nouveautés"
-                    NewReleasesSection()
-                    
-                    // Section "Pour vous"
-                    RecommendedSection()
-                }
-                .padding(.horizontal)
-            }
-            .navigationTitle("Accueil")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        // Action pour le profil
+                    Menu {
+                        Button(action: {
+                            authViewModel.signOut()
+                        }) {
+                            Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
                     } label: {
                         Image(systemName: "person.circle.fill")
-                            .font(.title2)
+                            .font(.system(size: 30))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+                .padding(.horizontal)
+                
+                // Section Continuer la lecture
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Continuer la lecture")
+                        .font(.title2)
+                        .bold()
+                        .padding(.horizontal)
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 15) {
+                            ForEach(0..<3) { _ in
+                                BookContinueCard()
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                
+                // Section Les incontournables
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Les incontournables")
+                        .font(.title2)
+                        .bold()
+                        .padding(.horizontal)
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 15) {
+                            ForEach(0..<5) { _ in
+                                BookCard()
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                
+                // Section Nouveautés
+                VStack(alignment: .leading, spacing: 15) {
+                    Text("Nouveautés")
+                        .font(.title2)
+                        .bold()
+                        .padding(.horizontal)
+                    
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 15) {
+                            ForEach(0..<5) { _ in
+                                BookCard()
+                            }
+                        }
+                        .padding(.horizontal)
                     }
                 }
             }
+            .padding(.vertical)
         }
+        .navigationBarHidden(true)
     }
 }
 
-// Section "Continuer la lecture"
-struct ContinueReadingSection: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Continuer la lecture")
-                .font(.title2)
-                .bold()
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 20) {
-                    ForEach(0..<3) { _ in
-                        ContinueReadingCard()
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Carte pour "Continuer la lecture"
-struct ContinueReadingCard: View {
+struct BookContinueCard: View {
     var body: some View {
         VStack(alignment: .leading) {
             ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(Color.gray.opacity(0.2))
-                    .frame(width: 160, height: 220)
+                    .frame(width: 280, height: 160)
                 
-                // Indicateur de progression
-                ProgressView(value: 0.45)
-                    .frame(width: 140)
-                    .padding(.bottom, 8)
+                Text("75%")
+                    .font(.caption)
+                    .padding(8)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(8)
             }
             
             VStack(alignment: .leading, spacing: 4) {
@@ -75,90 +114,36 @@ struct ContinueReadingCard: View {
                     .font(.subheadline)
                     .foregroundColor(.gray)
             }
-            .frame(width: 160)
+            .padding(.horizontal, 4)
         }
     }
 }
 
-// Section "Les Incontournables"
-struct FeaturedBooksSection: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Les Incontournables")
-                .font(.title2)
-                .bold()
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 20) {
-                    ForEach(0..<5) { _ in
-                        BookCard()
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Section "Nouveautés"
-struct NewReleasesSection: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Nouveautés")
-                .font(.title2)
-                .bold()
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 20) {
-                    ForEach(0..<5) { _ in
-                        BookCard()
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Section "Pour vous"
-struct RecommendedSection: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Pour vous")
-                .font(.title2)
-                .bold()
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 20) {
-                    ForEach(0..<5) { _ in
-                        BookCard()
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Carte de livre générique
 struct BookCard: View {
     var body: some View {
         VStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 10)
                 .fill(Color.gray.opacity(0.2))
-                .frame(width: 120, height: 180)
+                .frame(width: 140, height: 200)
             
             VStack(alignment: .leading, spacing: 4) {
                 Text("Titre du livre")
                     .font(.headline)
-                    .lineLimit(2)
+                    .lineLimit(1)
                 Text("Auteur")
                     .font(.subheadline)
                     .foregroundColor(.gray)
                     .lineLimit(1)
             }
-            .frame(width: 120)
+            .padding(.horizontal, 4)
         }
+        .frame(width: 140)
     }
 }
 
 #Preview {
-    HomeView()
+    NavigationStack {
+        HomeView()
+            .environmentObject(AuthViewModel())
+    }
 } 

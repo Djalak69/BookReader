@@ -1,0 +1,17 @@
+strings:
+  inputs: BookReader/Resources/*.strings
+  outputs:
+    - templateName: structured-swift5
+      output: BookReader/Generated/Strings.swift
+
+ib:
+  inputs: BookReader/**/*.storyboard
+  outputs:
+    - templateName: scenes-swift5
+      output: BookReader/Generated/Storyboards.swift
+
+xcassets:
+  inputs: BookReader/Resources/*.xcassets
+  outputs:
+    - templateName: swift5
+      output: BookReader/Generated/Assets.swift 

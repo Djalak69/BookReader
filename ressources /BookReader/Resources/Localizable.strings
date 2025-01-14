@@ -1,0 +1,13 @@
+"book.new" = "Nouveau";
+"book.about" = "À propos de ce livre";
+"button.download" = "Télécharger";
+"button.upgrade" = "Devenir Premium";
+"downloads.remaining" = "Téléchargements restants";
+"downloads.books" = "%d livres";
+"category.all" = "Tous";
+"category.fiction" = "Fiction";
+"category.nonfiction" = "Non-fiction";
+"category.youth" = "Jeunesse";
+"category.scifi" = "Science-fiction";
+"category.romance" = "Romance";
+"category.thriller" = "Policier"; 

@@ -1,283 +1,196 @@
 import SwiftUI
 
 struct LibraryView: View {
-    @StateObject private var viewModel = LibraryViewModel()
+    @EnvironmentObject var authViewModel: AuthViewModel
+    @State private var selectedCategory: BookCategory = .all
     @State private var showSubscriptionInfo = false
-    @State private var showLoginSheet = false
-    @State private var email = ""
-    @State private var password = ""
-    @State private var isLoggingIn = false
     
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Bannière d'abonnement et téléchargements restants
-                SubscriptionBanner(remainingDownloads: viewModel.remainingDownloads)
-                    .padding()
-                
-                // Catégories
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        Button {
-                            viewModel.updateCategory(nil)
-                        } label: {
-                            Text("Tout")
-                                .font(.subheadline)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 20)
-                                        .fill(viewModel.selectedCategory == nil ? Color.purple : Color.gray.opacity(0.1))
-                                )
-                                .foregroundColor(viewModel.selectedCategory == nil ? .white : .primary)
-                        }
-                        
-                        ForEach(Book.BookCategory.allCases, id: \.self) { category in
-                            CategoryButton(
-                                category: category,
-                                isSelected: viewModel.selectedCategory == category
-                            ) {
-                                viewModel.updateCategory(category)
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-                .padding(.vertical, 8)
-                
-                if viewModel.isLoading {
-                    Spacer()
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle())
-                    Spacer()
-                } else if let error = viewModel.error {
-                    Spacer()
-                    VStack(spacing: 16) {
-                        Image(systemName: "exclamationmark.triangle")
+        ScrollView {
+            VStack(spacing: 20) {
+                // En-tête avec informations d'abonnement
+                VStack(spacing: 15) {
+                    HStack {
+                        Text("Bibliothèque")
                             .font(.largeTitle)
-                            .foregroundColor(.red)
-                        Text(error)
-                            .multilineTextAlignment(.center)
-                            .foregroundColor(.secondary)
-                        Button("Réessayer") {
-                            Task {
-                                await viewModel.loadBooks()
-                            }
-                        }
-                    }
-                    .padding()
-                    Spacer()
-                } else {
-                    // Grille de livres
-                    ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.flexible(), spacing: 20),
-                            GridItem(.flexible(), spacing: 20),
-                        ], spacing: 24) {
-                            ForEach(viewModel.books) { book in
-                                LibraryBookCard(
-                                    book: book,
-                                    remainingDownloads: viewModel.remainingDownloads
-                                ) { bookId in
-                                    Task {
-                                        await viewModel.downloadBook(id: bookId)
-                                    }
-                                }
-                            }
-                        }
-                        .padding()
-                    }
-                }
-            }
-            .navigationTitle("Bibliothèque")
-            .searchable(text: $viewModel.searchQuery, prompt: "Rechercher un livre")
-            .alert("Authentification requise", isPresented: $viewModel.showLoginAlert) {
-                Button("Se connecter") {
-                    showLoginSheet = true
-                }
-                Button("Annuler", role: .cancel) {}
-            } message: {
-                Text("Vous devez vous connecter pour accéder à cette fonctionnalité.")
-            }
-            .sheet(isPresented: $showLoginSheet) {
-                NavigationView {
-                    Form {
-                        Section(header: Text("Connexion")) {
-                            TextField("Email", text: $email)
-                                .textContentType(.emailAddress)
-                                .autocapitalization(.none)
-                            
-                            SecureField("Mot de passe", text: $password)
-                                .textContentType(.password)
-                        }
+                            .bold()
+                        Spacer()
                         
-                        if let error = viewModel.error {
-                            Section {
-                                Text(error)
-                                    .foregroundColor(.red)
-                            }
-                        }
-                        
-                        Section {
-                            Button(action: {
-                                Task {
-                                    isLoggingIn = true
-                                    if await viewModel.login(email: email, password: password) {
-                                        showLoginSheet = false
-                                        email = ""
-                                        password = ""
-                                    }
-                                    isLoggingIn = false
-                                }
-                            }) {
-                                if isLoggingIn {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle())
-                                } else {
-                                    Text("Se connecter")
-                                }
-                            }
-                            .disabled(email.isEmpty || password.isEmpty || isLoggingIn)
+                        Button {
+                            showSubscriptionInfo.toggle()
+                        } label: {
+                            Label("3 téléchargements restants", systemImage: "arrow.down.circle")
+                                .font(.caption)
+                                .padding(8)
+                                .background(Color.accentColor.opacity(0.1))
+                                .foregroundColor(.accentColor)
+                                .cornerRadius(20)
                         }
                     }
-                    .navigationTitle("Connexion")
-                    .navigationBarItems(trailing: Button("Annuler") {
-                        showLoginSheet = false
-                    })
+                    
+                    // Catégories
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 15) {
+                            ForEach(BookCategory.allCases, id: \.self) { category in
+                                CategoryChip(
+                                    title: category.title,
+                                    isSelected: selectedCategory == category
+                                ) {
+                                    selectedCategory = category
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
                 }
+                .padding(.horizontal)
+                
+                // Grille de livres
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 20),
+                    GridItem(.flexible(), spacing: 20)
+                ], spacing: 20) {
+                    ForEach(0..<20) { _ in
+                        LibraryBookCard()
+                    }
+                }
+                .padding(.horizontal)
             }
+            .padding(.vertical)
+        }
+        .sheet(isPresented: $showSubscriptionInfo) {
+            SubscriptionInfoView()
         }
     }
 }
 
-struct CategoryButton: View {
-    let category: Book.BookCategory
+struct CategoryChip: View {
+    let title: String
     let isSelected: Bool
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            Text(category.rawValue)
+            Text(title)
                 .font(.subheadline)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(isSelected ? Color.purple : Color.gray.opacity(0.1))
-                )
+                .background(isSelected ? Color.accentColor : Color.gray.opacity(0.1))
                 .foregroundColor(isSelected ? .white : .primary)
+                .cornerRadius(20)
         }
     }
 }
 
 struct LibraryBookCard: View {
-    let book: Book
-    let remainingDownloads: Int
-    let onDownload: (String) -> Void
-    
-    @State private var isDownloading = false
-    @State private var showDownloadAlert = false
-    
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Couverture
-            ZStack(alignment: .bottomTrailing) {
-                if let coverUrl = book.coverUrl, let url = URL(string: coverUrl) {
-                    AsyncImage(url: url) { image in
-                        image
-                            .resizable()
-                            .aspectRatio(2/3, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    } placeholder: {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray.opacity(0.2))
-                            .aspectRatio(2/3, contentMode: .fit)
-                            .overlay(
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle())
-                            )
-                    }
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.gray.opacity(0.2))
-                        .aspectRatio(2/3, contentMode: .fit)
-                        .overlay(
-                            Image(systemName: "book.fill")
-                                .foregroundColor(.gray)
-                        )
-                }
+        VStack(alignment: .leading) {
+            ZStack(alignment: .topTrailing) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.2))
+                    .aspectRatio(2/3, contentMode: .fit)
                 
-                // Bouton de téléchargement
                 Button {
-                    if remainingDownloads > 0 {
-                        withAnimation {
-                            isDownloading = true
-                        }
-                        onDownload(book.id)
-                        // La fin du téléchargement sera gérée par le ViewModel
-                    } else {
-                        showDownloadAlert = true
-                    }
+                    // Action pour télécharger
                 } label: {
-                    Circle()
-                        .fill(Color(.systemBackground))
-                        .frame(width: 32, height: 32)
-                        .overlay(
-                            Group {
-                                if isDownloading {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .purple))
-                                } else {
-                                    Image(systemName: "arrow.down")
-                                        .foregroundColor(.purple)
-                                }
-                            }
-                        )
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.accentColor)
+                        .background(Circle().fill(.white))
+                        .padding(8)
                 }
-                .padding(8)
             }
             
-            // Informations du livre
             VStack(alignment: .leading, spacing: 4) {
-                Text(book.title)
+                Text("Titre du livre")
                     .font(.headline)
                     .lineLimit(2)
-                
-                Text(book.author)
+                Text("Auteur")
                     .font(.subheadline)
                     .foregroundColor(.gray)
                     .lineLimit(1)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+}
+
+struct SubscriptionInfoView: View {
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                Image(systemName: "star.circle.fill")
+                    .font(.system(size: 60))
+                    .foregroundColor(.accentColor)
                 
-                // Tags
-                HStack {
-                    Text(book.category.rawValue)
-                        .font(.caption2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.purple.opacity(0.1))
-                        .foregroundColor(.purple)
-                        .clipShape(Capsule())
-                    
-                    if book.isNew {
-                        Text("Nouveau")
-                            .font(.caption2)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.green.opacity(0.1))
-                            .foregroundColor(.green)
-                            .clipShape(Capsule())
+                Text("Votre abonnement Premium")
+                    .font(.title2)
+                    .bold()
+                
+                VStack(alignment: .leading, spacing: 15) {
+                    SubscriptionFeatureRow(icon: "book.fill", text: "Accès illimité à tous les livres")
+                    SubscriptionFeatureRow(icon: "arrow.down.circle.fill", text: "3 téléchargements par mois")
+                    SubscriptionFeatureRow(icon: "wifi", text: "Lecture hors-ligne disponible")
+                    SubscriptionFeatureRow(icon: "bookmark.fill", text: "Synchronisation sur tous vos appareils")
+                }
+                .padding()
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(12)
+                
+                Spacer()
+            }
+            .padding()
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Fermer") {
+                        dismiss()
                     }
                 }
             }
         }
-        .alert("Limite de téléchargement atteinte", isPresented: $showDownloadAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Vous avez atteint votre limite de téléchargements pour ce mois-ci. Les téléchargements seront réinitialisés le mois prochain.")
+    }
+}
+
+struct SubscriptionFeatureRow: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundColor(.accentColor)
+            Text(text)
+                .font(.subheadline)
+        }
+    }
+}
+
+enum BookCategory: CaseIterable {
+    case all
+    case fiction
+    case nonFiction
+    case science
+    case history
+    case biography
+    case poetry
+    
+    var title: String {
+        switch self {
+        case .all: return "Tous"
+        case .fiction: return "Fiction"
+        case .nonFiction: return "Non-Fiction"
+        case .science: return "Science"
+        case .history: return "Histoire"
+        case .biography: return "Biographie"
+        case .poetry: return "Poésie"
         }
     }
 }
 
 #Preview {
     LibraryView()
+        .environmentObject(AuthViewModel())
 } 
