@@ -1,201 +1,209 @@
 import SwiftUI
+import OSLog
+
+struct SearchBarView: View {
+    @Binding var text: String
+    @FocusState private var isFocused: Bool
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.gray)
+            
+            TextField("Rechercher un livre, un auteur...", text: $text)
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .focused($isFocused)
+                .submitLabel(.search)
+            
+            if !text.isEmpty {
+                Button {
+                    withAnimation {
+                        text = ""
+                        isFocused = false
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.gray)
+                }
+                .transition(.opacity)
+            }
+        }
+        .padding(8)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+}
 
 struct SearchView: View {
-    @State private var searchText = ""
-    @State private var selectedFilter: SearchFilter = .all
-    @State private var showFilters = false
+    private let logger = Logger(subsystem: "com.bookreader.app", category: "SearchView")
+    @StateObject private var viewModel = SearchViewModel()
+    @Environment(\.scenePhase) private var scenePhase
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Barre de recherche personnalisée
-                HStack {
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.gray)
-                        
-                        TextField("Rechercher un livre, un auteur...", text: $searchText)
-                            .textFieldStyle(PlainTextFieldStyle())
-                        
-                        if !searchText.isEmpty {
-                            Button(action: {
-                                searchText = ""
-                            }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    }
-                    .padding(10)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(10)
-                    
-                    Button {
-                        showFilters.toggle()
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .foregroundColor(.accentColor)
-                    }
-                }
-                .padding(.horizontal)
+        NavigationStack {
+            VStack(spacing: 0) {
+                SearchBarView(text: $viewModel.searchText)
+                    .padding()
                 
-                if searchText.isEmpty {
-                    // Suggestions
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text("Suggestions")
-                            .font(.title2)
-                            .bold()
-                            .padding(.horizontal)
-                        
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 15) {
-                                ForEach(suggestedSearches, id: \.self) { suggestion in
-                                    SuggestionChip(text: suggestion) {
-                                        searchText = suggestion
-                                    }
-                                }
-                            }
-                            .padding(.horizontal)
-                        }
-                        
-                        // Catégories populaires
-                        Text("Catégories populaires")
-                            .font(.title2)
-                            .bold()
-                            .padding(.horizontal)
-                        
-                        LazyVGrid(columns: [
-                            GridItem(.flexible()),
-                            GridItem(.flexible())
-                        ], spacing: 15) {
-                            ForEach(popularCategories, id: \.self) { category in
-                                CategoryCard(category: category)
+                List {
+                    if viewModel.searchText.isEmpty {
+                        suggestionsSection
+                        categoriesSection
+                    } else {
+                        Group {
+                            if viewModel.isLoading {
+                                loadingSection
+                            } else if let error = viewModel.error {
+                                errorSection(error: error)
+                            } else {
+                                resultsSection
                             }
                         }
-                        .padding(.horizontal)
                     }
-                } else {
-                    // Résultats de recherche
-                    LazyVStack(spacing: 15) {
-                        ForEach(0..<10) { _ in
-                            SearchResultRow()
-                        }
-                    }
-                    .padding(.horizontal)
+                }
+                .listStyle(.plain)
+            }
+            .navigationTitle("Rechercher")
+            .navigationDestination(for: String.self) { category in
+                Text(category)
+                    .navigationTitle(category)
+            }
+            .navigationDestination(for: SearchResult.self) { result in
+                Text(result.title)
+                    .navigationTitle(result.title)
+            }
+            .safeToolbar {
+                Button(action: {
+                    viewModel.showFilters = true
+                }) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .foregroundColor(.accentColor)
+                }
+            }
+            .sheet(isPresented: $viewModel.showFilters) {
+                FilterView(viewModel: viewModel)
+            }
+            .onChange(of: scenePhase) { phase in
+                if phase == .inactive {
+                    // Annuler les tâches en cours si l'app passe en arrière-plan
+                    viewModel.cancelSearch()
                 }
             }
         }
-        .sheet(isPresented: $showFilters) {
-            SearchFiltersView(selectedFilter: $selectedFilter)
-        }
     }
     
-    let suggestedSearches = [
-        "Science-fiction",
-        "Romans policiers",
-        "Fantasy",
-        "Développement personnel",
-        "Histoire"
-    ]
-    
-    let popularCategories = [
-        "Bestsellers",
-        "Nouveautés",
-        "Prix littéraires",
-        "Classiques",
-        "Jeunesse",
-        "Business"
-    ]
-}
-
-struct SuggestionChip: View {
-    let text: String
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            Text(text)
-                .font(.subheadline)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color.gray.opacity(0.1))
-                .foregroundColor(.primary)
-                .cornerRadius(20)
-        }
-    }
-}
-
-struct CategoryCard: View {
-    let category: String
-    
-    var body: some View {
-        VStack(alignment: .leading) {
+    private var loadingSection: some View {
+        Section {
             HStack {
-                Text(category)
-                    .font(.headline)
-                    .foregroundColor(.primary)
                 Spacer()
-                Image(systemName: "chevron.right")
-                    .foregroundColor(.gray)
+                ProgressView()
+                    .padding()
+                Spacer()
             }
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(12)
         }
     }
-}
-
-struct SearchResultRow: View {
-    var body: some View {
-        HStack(spacing: 15) {
-            // Couverture du livre
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.gray.opacity(0.2))
-                .frame(width: 60, height: 90)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Titre du livre")
+    
+    private func errorSection(error: Error) -> some View {
+        Section {
+            VStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.title)
+                    .foregroundColor(.red)
+                Text("Une erreur est survenue")
                     .font(.headline)
-                Text("Auteur")
+                Text(error.localizedDescription)
                     .font(.subheadline)
                     .foregroundColor(.gray)
-                Text("Description courte du livre qui peut tenir sur plusieurs lignes...")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
             }
-            
-            Spacer()
+            .frame(maxWidth: .infinity)
+            .padding()
         }
-        .padding()
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(12)
+    }
+    
+    private var suggestionsSection: some View {
+        Section(header: Text("Suggestions")) {
+            ForEach(viewModel.suggestedSearches, id: \.self) { suggestion in
+                Button(action: {
+                    viewModel.searchText = suggestion
+                }) {
+                    Text(suggestion)
+                }
+            }
+        }
+    }
+    
+    private var categoriesSection: some View {
+        Section(header: Text("Catégories populaires")) {
+            ForEach(viewModel.popularCategories, id: \.self) { category in
+                NavigationLink(value: category) {
+                    Text(category)
+                }
+            }
+        }
+    }
+    
+    private var resultsSection: some View {
+        Section {
+            if viewModel.searchResults.isEmpty {
+                HStack {
+                    Spacer()
+                    Text("Aucun résultat trouvé")
+                        .foregroundColor(.gray)
+                        .padding()
+                    Spacer()
+                }
+            } else {
+                ForEach(viewModel.searchResults) { result in
+                    NavigationLink(value: result) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(result.title)
+                                .font(.headline)
+                            Text(result.author)
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
     }
 }
 
-struct SearchFiltersView: View {
-    @Environment(\.dismiss) var dismiss
-    @Binding var selectedFilter: SearchFilter
+extension View {
+    func safeToolbar<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        self.toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                content()
+            }
+        }
+    }
+}
+
+struct FilterView: View {
+    @ObservedObject var viewModel: SearchViewModel
+    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(SearchFilter.allCases, id: \.self) { filter in
-                    Button {
-                        selectedFilter = filter
-                        dismiss()
-                    } label: {
-                        HStack {
-                            Text(filter.title)
-                            Spacer()
-                            if selectedFilter == filter {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
-                            }
+        NavigationStack {
+            List(SearchFilter.allCases, id: \.self) { filter in
+                Button {
+                    viewModel.selectedFilter = filter
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(filter.title)
+                        Spacer()
+                        if viewModel.selectedFilter == filter {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.accentColor)
                         }
                     }
-                    .foregroundColor(.primary)
                 }
+                .foregroundColor(.primary)
             }
             .navigationTitle("Filtres")
             .navigationBarTitleDisplayMode(.inline)
@@ -207,22 +215,7 @@ struct SearchFiltersView: View {
                 }
             }
         }
-    }
-}
-
-enum SearchFilter: CaseIterable {
-    case all
-    case title
-    case author
-    case category
-    
-    var title: String {
-        switch self {
-        case .all: return "Tous"
-        case .title: return "Titre"
-        case .author: return "Auteur"
-        case .category: return "Catégorie"
-        }
+        .presentationDetents([.medium])
     }
 }
 
