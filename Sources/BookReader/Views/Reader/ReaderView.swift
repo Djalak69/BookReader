@@ -14,14 +14,12 @@ struct ReaderView: View {
             ZStack {
                 if viewModel.isLoading {
                     ProgressView("Chargement du livre...")
-                } else {
-                    ScrollView {
-                        Text(viewModel.content)
-                            .padding()
-                    }
+                } else if let content = viewModel.content {
+                    WebView(html: content.html, baseURL: content.baseURL)
+                        .edgesIgnoringSafeArea(.bottom)
                 }
             }
-            .navigationTitle(viewModel.book.title)
+            .navigationTitle(viewModel.content?.title ?? viewModel.book.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

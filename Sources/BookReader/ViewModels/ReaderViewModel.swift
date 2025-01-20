@@ -3,7 +3,7 @@ import Models
 
 @MainActor
 class ReaderViewModel: ObservableObject {
-    @Published var content: String = ""
+    @Published var content: EPUBContent?
     @Published var isLoading = false
     @Published var error: Error?
     

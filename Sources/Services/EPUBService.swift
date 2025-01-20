@@ -2,12 +2,19 @@ import Foundation
 import R2Shared
 import R2Streamer
 
+struct EPUBContent {
+    let html: String
+    let baseURL: URL
+    let title: String
+}
+
 enum EPUBError: LocalizedError {
     case downloadFailed
     case invalidFileFormat
     case fileNotFound
     case epubParsingFailed
     case resourceNotFound
+    case htmlExtractionFailed
     
     var errorDescription: String? {
         switch self {
@@ -21,6 +28,8 @@ enum EPUBError: LocalizedError {
             return "Impossible de lire le fichier ePub"
         case .resourceNotFound:
             return "Ressource introuvable dans le fichier ePub"
+        case .htmlExtractionFailed:
+            return "Impossible d'extraire le contenu HTML"
         }
     }
 }
@@ -38,7 +47,7 @@ actor EPUBService {
         self.documentsPath = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     
-    func downloadAndLoadBook(url: URL) async throws -> String {
+    func downloadAndLoadBook(url: URL) async throws -> EPUBContent {
         let bookData = try await downloadBook(from: url)
         return try await extractContent(from: bookData, bookURL: url)
     }
@@ -59,28 +68,76 @@ actor EPUBService {
         return data
     }
     
-    private func extractContent(from data: Data, bookURL: URL) async throws -> String {
+    private func extractContent(from data: Data, bookURL: URL) async throws -> EPUBContent {
         let localURL = try await saveToTemporaryFile(data: data)
         
         guard let publication = try? streamer.open(asset: FileAsset(url: localURL)) else {
             throw EPUBError.epubParsingFailed
         }
         
-        var content = ""
+        var htmlContent = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {
+                    font-family: -apple-system, system-ui;
+                    line-height: 1.6;
+                    padding: 20px;
+                    margin: 0;
+                }
+                img {
+                    max-width: 100%;
+                    height: auto;
+                }
+            </style>
+        </head>
+        <body>
+        """
+        
         for link in publication.readingOrder {
             guard let resource = try? publication.get(link),
                   let resourceData = try? await resource.read().data(upTo: Int.max),
-                  let text = String(data: resourceData, encoding: .utf8) else {
+                  let content = String(data: resourceData, encoding: .utf8) else {
                 continue
             }
-            content += "\n\n" + text
+            htmlContent += "\n" + content
         }
         
-        if content.isEmpty {
-            throw EPUBError.resourceNotFound
+        htmlContent += "\n</body></html>"
+        
+        if htmlContent == """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                    body {
+                        font-family: -apple-system, system-ui;
+                        line-height: 1.6;
+                        padding: 20px;
+                        margin: 0;
+                    }
+                    img {
+                        max-width: 100%;
+                        height: auto;
+                    }
+                </style>
+            </head>
+            <body>
+            </body></html>
+            """ {
+            throw EPUBError.htmlExtractionFailed
         }
         
-        return content
+        return EPUBContent(
+            html: htmlContent,
+            baseURL: localURL.deletingLastPathComponent(),
+            title: publication.metadata.title
+        )
     }
     
     private func saveToTemporaryFile(data: Data) async throws -> URL {
