@@ -18,6 +18,11 @@ struct MainTabView: View {
                 .tabItem {
                     Label("Bibliothèque", systemImage: "books.vertical.fill")
                 }
+            
+            AdminView()
+                .tabItem {
+                    Label("Administration", systemImage: "gear")
+                }
         }
         #if os(iOS)
         .navigationBarHidden(true)
