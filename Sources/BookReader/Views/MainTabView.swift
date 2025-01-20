@@ -2,6 +2,8 @@ import SwiftUI
 
 @available(macOS 13.0, *)
 struct MainTabView: View {
+    @EnvironmentObject var authViewModel: AuthViewModel
+    
     var body: some View {
         TabView {
             HomeView()
@@ -19,10 +21,12 @@ struct MainTabView: View {
                     Label("Bibliothèque", systemImage: "books.vertical.fill")
                 }
             
-            AdminView()
-                .tabItem {
-                    Label("Administration", systemImage: "gear")
-                }
+            if authViewModel.currentUser?.role == .admin {
+                AdminView()
+                    .tabItem {
+                        Label("Administration", systemImage: "gear")
+                    }
+            }
         }
         #if os(iOS)
         .navigationBarHidden(true)
