@@ -13,7 +13,7 @@ struct ReaderView: View {
         NavigationView {
             ZStack {
                 if viewModel.isLoading {
-                    ProgressView()
+                    ProgressView("Chargement du livre...")
                 } else {
                     ScrollView {
                         Text(viewModel.content)
